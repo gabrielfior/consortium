@@ -108,12 +108,14 @@ contract LotteryVRFv2Consumer is VRFConsumerBaseV2, ConfirmedOwner {
     }
 
     function pickWinner() public onlyByOwner {
-        uint index = getPseudoRandomNumber() % players.length;
+        // uint index = getPseudoRandomNumber() % players.length;
         
-        //TODO
-        //this.requestRandomWords();
-        //uint index = this.getRequestStatus(1) % players.length;
-
+        // Use Chainlink VRF v2 to get true random number
+        lastRequestId = this.requestRandomWords();
+        bool fulfilled;
+        uint[] memory randomNumbers;
+        (fulfilled, randomNumbers) = this.getRequestStatus(lastRequestId);
+        uint index = randomNumbers[0] % players.length;
 
         // Transfer the balance of this smart contract to the winner's address
         players[index].transfer(address(this).balance);
