@@ -1,3 +1,6 @@
 [submodule "lib/forge-std"]
 	path = lib/forge-std
 	url = https://github.com/foundry-rs/forge-std
+[submodule "lib/RevestV2-Public"]
+	path = lib/RevestV2-Public
+	url = https://github.com/Revest-Finance/RevestV2-Public
