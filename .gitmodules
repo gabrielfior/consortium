@@ -4,3 +4,6 @@
 [submodule "lib/RevestV2-Public"]
 	path = lib/RevestV2-Public
 	url = https://github.com/Revest-Finance/RevestV2-Public
+[submodule "lib/chainlink-brownie-contracts"]
+	path = lib/chainlink-brownie-contracts
+	url = https://github.com/smartcontractkit/chainlink-brownie-contracts
