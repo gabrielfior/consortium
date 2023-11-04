@@ -8,33 +8,31 @@ pragma solidity ^0.8.7;
 
 import "@chainlink/contracts/src/v0.8/interfaces/VRFCoordinatorV2Interface.sol";
 import "@chainlink/contracts/src/v0.8/vrf/VRFConsumerBaseV2.sol";
-import "@chainlink/contracts/src/v0.8/shared/access/ConfirmedOwner.sol";
+//import "@chainlink/contracts/src/v0.8/shared/access/ConfirmedOwner.sol";
 
-contract LotteryVRFv2Consumer is VRFConsumerBaseV2, ConfirmedOwner {
-
+//contract LotteryVRFv2Consumer is VRFConsumerBaseV2, ConfirmedOwner {
+contract LotteryVRFv2Consumer is VRFConsumerBaseV2 {
     address public contractOwner;
     address payable[] public players;
     uint public lotteryId;
     mapping (uint => address payable) public lotteryHistory;
 
-    uint public ENTER_LOTTERY_FEE = 0.01 ether;
+    uint public ENTER_LOTTERY_FEE = 0.0000000001 ether;
 
     // VRFv2Consumer.sol
     // ------------------------------------------------------------------------------
-    event RequestSent(uint256 requestId, uint32 numWords);
-    event RequestFulfilled(uint256 requestId, uint256[] randomWords);
 
-    struct RequestStatus {
-        bool fulfilled; // whether the request has been successfully fulfilled
-        bool exists; // whether a requestId exists
-        uint256[] randomWords;
-    }
-    mapping(uint256 => RequestStatus)
-        public s_requests; /* requestId --> requestStatus */
+    // Map requestId to request result
+    mapping(uint256 => uint256) public requestIdToResult;
+    
     VRFCoordinatorV2Interface COORDINATOR;
 
     // Your subscription ID.
     uint64 s_subscriptionId;
+
+    // Sepolia coordinator. For other networks,
+    // see https://docs.chain.link/docs/vrf-contracts/#configurations
+    address vrfCoordinator = 0x8103B0A8A00be2DDC778e6e7eaa21791Cd364625;
 
     // past requests Id.
     uint256[] public requestIds;
@@ -57,25 +55,16 @@ contract LotteryVRFv2Consumer is VRFConsumerBaseV2, ConfirmedOwner {
     // The default is 3, but you can set this higher.
     uint16 requestConfirmations = 3;
 
-    // For this example, retrieve 2 random values in one request.
+    // For this example, retrieve 1 random value in one request.
     // Cannot exceed VRFCoordinatorV2.MAX_NUM_WORDS.
-    uint32 numWords = 2;
+    uint32 numWords = 1;
 
-    /**
-     * HARDCODED FOR SEPOLIA
-     * COORDINATOR: 0x8103B0A8A00be2DDC778e6e7eaa21791Cd364625
-     */
-    constructor(
-        uint64 subscriptionId
-    )
-        VRFConsumerBaseV2(0x8103B0A8A00be2DDC778e6e7eaa21791Cd364625)
-        ConfirmedOwner(msg.sender)
-    {
-        COORDINATOR = VRFCoordinatorV2Interface(
-            0x8103B0A8A00be2DDC778e6e7eaa21791Cd364625
-        );
+    event LotteryStarted(uint256 indexed requestId);
+    event WinnerGenerated(uint256 indexed requestId, uint256 indexed result);
+
+    constructor(uint64 subscriptionId) VRFConsumerBaseV2(vrfCoordinator) {
+        COORDINATOR = VRFCoordinatorV2Interface(vrfCoordinator);
         s_subscriptionId = subscriptionId;
-
         
     // ------------------------------------------------------------------------------
         contractOwner = msg.sender;
@@ -107,25 +96,37 @@ contract LotteryVRFv2Consumer is VRFConsumerBaseV2, ConfirmedOwner {
         return uint(keccak256(abi.encodePacked(contractOwner, block.timestamp)));
     }
 
-    function pickWinner() public onlyByOwner {
+    function pickWinner() public onlyOwner returns (uint256 requestId){
         // uint index = getPseudoRandomNumber() % players.length;
         
         // Use Chainlink VRF v2 to get true random number
-        lastRequestId = this.requestRandomWords();
-        bool fulfilled;
-        uint[] memory randomNumbers;
-        (fulfilled, randomNumbers) = this.getRequestStatus(lastRequestId);
-        uint index = randomNumbers[0] % players.length;
-
-        // Transfer the balance of this smart contract to the winner's address
-        players[index].transfer(address(this).balance);
-
-        // Update the state to avoid re-entry attack
-        lotteryHistory[lotteryId] = players[index];
-        lotteryId++;
+        // Will revert if subscription is not set and funded.
+        requestId = COORDINATOR.requestRandomWords(
+            keyHash,
+            s_subscriptionId,
+            requestConfirmations,
+            callbackGasLimit,
+            numWords
+        );
+        requestIdToResult[requestId] = 0;
+        requestIds.push(requestId);
+        lastRequestId = requestId;
+        emit LotteryStarted(requestId);
+        return requestId;
         
-        // Remove the winner
-        removePlayer(index);
+        // TODO: further calculations pf winner's index
+
+        // uint index = requestIdToResult[lastRequestId] % players.length;
+
+        // // Transfer the balance of this smart contract to the winner's address
+        // players[index].transfer(address(this).balance);
+
+        // // Update the state to avoid re-entry attack
+        // lotteryHistory[lotteryId] = players[index];
+        // lotteryId++;
+        
+        // // Remove the winner
+        // removePlayer(index);
     }
 
 
@@ -135,55 +136,31 @@ contract LotteryVRFv2Consumer is VRFConsumerBaseV2, ConfirmedOwner {
         players.pop();
     }
 
-    modifier onlyByOwner() {
+    modifier onlyOwner() {
         require(msg.sender == contractOwner);
         _;
     }
-    
 
-    // VRFv2Consumer.sol
-    // ------------------------------------------------------------------------------
-    // Assumes the subscription is funded sufficiently.
-    function requestRandomWords()
-        external
-        onlyOwner
-        returns (uint256 requestId)
-    {
-        // Will revert if subscription is not set and funded.
-        requestId = COORDINATOR.requestRandomWords(
-            keyHash,
-            s_subscriptionId,
-            requestConfirmations,
-            callbackGasLimit,
-            numWords
-        );
-        s_requests[requestId] = RequestStatus({
-            randomWords: new uint256[](0),
-            exists: true,
-            fulfilled: false
-        });
-        requestIds.push(requestId);
-        lastRequestId = requestId;
-        emit RequestSent(requestId, numWords);
-        return requestId;
-    }
-
+    /**
+     * @notice Callback function used by VRF Coordinator to return the random number to this contract.
+     *
+     * @dev Some action on the contract state should be taken here, like storing the result.
+     * @dev WARNING: take care to avoid having multiple VRF requests in flight if their order of arrival would result
+     * in contract states with different outcomes. Otherwise miners or the VRF operator would could take advantage
+     * by controlling the order.
+     * @dev The VRF Coordinator will only send this function verified responses, and the parent VRFConsumerBaseV2
+     * contract ensures that this method only receives randomness from the designated VRFCoordinator.
+     *
+     * @param requestId uint256
+     * @param randomWords  uint256[] The random result returned by the oracle.
+     */
     function fulfillRandomWords(
-        uint256 _requestId,
-        uint256[] memory _randomWords
+        uint256 requestId,
+        uint256[] memory randomWords
     ) internal override {
-        require(s_requests[_requestId].exists, "request not found");
-        s_requests[_requestId].fulfilled = true;
-        s_requests[_requestId].randomWords = _randomWords;
-        emit RequestFulfilled(_requestId, _randomWords);
-    }
-
-    function getRequestStatus(
-        uint256 _requestId
-    ) external view returns (bool fulfilled, uint256[] memory randomWords) {
-        require(s_requests[_requestId].exists, "request not found");
-        RequestStatus memory request = s_requests[_requestId];
-        return (request.fulfilled, request.randomWords);
+        uint256 randomNumber = randomWords[0];
+        requestIdToResult[requestId] = randomNumber;
+        emit WinnerGenerated(requestId, randomNumber);
     }
 
 }
