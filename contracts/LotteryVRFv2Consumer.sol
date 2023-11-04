@@ -8,9 +8,7 @@ pragma solidity ^0.8.7;
 
 import "@chainlink/contracts/src/v0.8/interfaces/VRFCoordinatorV2Interface.sol";
 import "@chainlink/contracts/src/v0.8/vrf/VRFConsumerBaseV2.sol";
-//import "@chainlink/contracts/src/v0.8/shared/access/ConfirmedOwner.sol";
 
-//contract LotteryVRFv2Consumer is VRFConsumerBaseV2, ConfirmedOwner {
 contract LotteryVRFv2Consumer is VRFConsumerBaseV2 {
     address public contractOwner;
     address payable[] public players;
@@ -66,7 +64,6 @@ contract LotteryVRFv2Consumer is VRFConsumerBaseV2 {
         COORDINATOR = VRFCoordinatorV2Interface(vrfCoordinator);
         s_subscriptionId = subscriptionId;
         
-    // ------------------------------------------------------------------------------
         contractOwner = msg.sender;
         lotteryId = 1;
     }
